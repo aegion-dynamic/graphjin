@@ -14,7 +14,7 @@ var dbs *sdata.DBSchema
 func init() {
 	var err error
 
-	dbs, err = sdata.NewDBSchema(sdata.GetTestDBInfo(), nil)
+	dbs, err = sdata.NewDBSchema(sdata.GetTestDBInfo(), nil, sdata.Config{})
 	if err != nil {
 		panic(err)
 	}
