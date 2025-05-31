@@ -52,15 +52,15 @@ func newDB(
 
 	if cs := conf.DB.ConnString; cs != "" {
 		if strings.HasPrefix(cs, "postgres://") {
-			conf.Core.DBType = "postgres"
+			conf.DB.Type = "postgres"
 		}
 		if strings.HasPrefix(cs, "mysql://") {
-			conf.Core.DBType = "mysql"
+			conf.DB.Type = "mysql"
 			conf.DB.ConnString = strings.TrimPrefix(cs, "mysql://")
 		}
 	}
 
-	switch conf.Core.DBType {
+	switch conf.DB.Type {
 	case "mysql":
 		dc, err = initMysql(conf, openDB, useTelemetry, fs)
 	default:

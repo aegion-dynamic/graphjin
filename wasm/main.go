@@ -62,7 +62,7 @@ func graphjinFunc() js.Func {
 		}
 
 		var db *sql.DB
-		switch conf.DBType {
+		switch conf.Database.Type {
 		case "mysql":
 			db = sql.OpenDB(NewMyDBConn(dbv))
 		default:

@@ -70,13 +70,17 @@ func (gj *graphjinEngine) getIntroResult() (data json.RawMessage, err error) {
 
 // Initializes the database discovery process on graphjin
 func (gj *graphjinEngine) initDiscover() (err error) {
-	switch gj.conf.DBType {
-	case "":
+	// Set the database type based on the configuration
+	gj.dbtype = gj.conf.Database.Type
+	if gj.dbtype == "" {
 		gj.dbtype = "postgres"
-	case "mssql":
-		gj.dbtype = "mysql"
+	}
+
+	switch gj.dbtype {
+	case "mysql", "postgres", "mssql":
+		// Valid database types, use as is
 	default:
-		gj.dbtype = gj.conf.DBType
+		gj.dbtype = "postgres"
 	}
 
 	if err = gj._initDiscover(); err != nil {
@@ -117,6 +121,14 @@ func (gj *graphjinEngine) _initDiscover() (err error) {
 		}
 	}
 
+	// Set the database type in the database info
+	if gj.dbinfo.Type == "" {
+		gj.dbinfo.Type = gj.conf.Database.Type
+		if gj.dbinfo.Type == "" {
+			gj.dbinfo.Type = "postgres"
+		}
+	}
+
 	if !gj.prod && gj.conf.EnableSchema {
 		var buf bytes.Buffer
 		if err := writeSchema(gj.dbinfo, &buf); err != nil {
@@ -133,9 +145,23 @@ func (gj *graphjinEngine) _initDiscover() (err error) {
 
 // Initializes the database schema on graphjin
 func (gj *graphjinEngine) initSchema() error {
+	gj.log.Printf("DEBUG: Initializing schema for database type: %s", gj.dbtype)
+	if gj.dbinfo == nil {
+		gj.log.Printf("WARNING: dbinfo is nil in initSchema")
+	} else {
+		gj.log.Printf("DEBUG: dbinfo has %d tables", len(gj.dbinfo.Tables))
+	}
+
 	if err := gj._initSchema(); err != nil {
 		return fmt.Errorf("%s: %w", gj.dbtype, err)
 	}
+
+	if gj.schema == nil {
+		gj.log.Printf("WARNING: schema is still nil after _initSchema")
+	} else {
+		gj.log.Printf("DEBUG: Schema initialized with default schema: %s", gj.schema.DefaultSchema())
+	}
+
 	return nil
 }
 
@@ -144,6 +170,23 @@ func (gj *graphjinEngine) _initSchema() (err error) {
 	// Validate database tables exist
 	if len(gj.dbinfo.Tables) == 0 {
 		return fmt.Errorf("no tables found in database")
+	}
+
+	// Create a new DBSchema instance
+	schemaConfig := sdata.Config{
+		DefaultSchema:        gj.conf.Database.Schemas.Default,
+		AllowedSchemas:       gj.conf.Database.Schemas.Allowed,
+		CrossSchemaSeparator: gj.conf.Database.Schemas.Separator,
+	}
+
+	// Set default values if not provided
+	if schemaConfig.CrossSchemaSeparator == "" {
+		schemaConfig.CrossSchemaSeparator = "Of"
+	}
+
+	gj.schema, err = sdata.NewDBSchema(gj.dbinfo, nil, schemaConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create database schema: %w", err)
 	}
 
 	// Process table configurations
@@ -202,6 +245,13 @@ func (gj *graphjinEngine) initIntro() (err error) {
 
 // Initializes the qcode compilers
 func (gj *graphjinEngine) initCompilers() (err error) {
+	// Debug logging for schema initialization
+	if gj.schema == nil {
+		gj.log.Printf("WARNING: Schema is nil in initCompilers")
+	} else {
+		gj.log.Printf("DEBUG: Schema initialized with default schema: %s", gj.schema.DefaultSchema())
+	}
+
 	qcc := qcode.Config{
 		TConfig:         gj.tmap,
 		DefaultBlock:    gj.conf.DefaultBlock,
@@ -209,7 +259,7 @@ func (gj *graphjinEngine) initCompilers() (err error) {
 		DisableAgg:      gj.conf.DisableAgg,
 		DisableFuncs:    gj.conf.DisableFuncs,
 		EnableCamelcase: gj.conf.EnableCamelcase,
-		DBSchema:        gj.schema.DBSchema(),
+		DBSchema:        gj.schema.DefaultSchema(),
 		Validators:      valid.Validators,
 	}
 

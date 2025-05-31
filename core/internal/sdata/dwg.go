@@ -217,7 +217,7 @@ func (s *DBSchema) Find(schema, name string) (DBTable, error) {
 	var t DBTable
 
 	if schema == "" {
-		schema = s.DBSchema()
+		schema = s.defaultSchema
 	}
 
 	v, ok := s.tindex[(schema + ":" + name)]
@@ -376,7 +376,7 @@ func (s *DBSchema) pickThroughPath(paths [][]int32, through string) ([][]int32, 
 		return paths, nil
 	}
 
-	v, ok := s.tindex[(s.DBSchema() + ":" + through)]
+	v, ok := s.tindex[(s.defaultSchema + ":" + through)]
 	if !ok {
 		return nil, ErrThoughNodeNotFound
 	}

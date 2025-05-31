@@ -22,7 +22,6 @@ type nodeInfo struct {
 type DBSchema struct {
 	dbType            string                  // db type
 	version           int                     // db version
-	schema            string                  // db schema
 	name              string                  // db name
 	tables            []DBTable               // tables
 	virtualTables     map[string]VirtualTable // for polymorphic relationships
@@ -92,7 +91,6 @@ func NewDBSchema(
 	schema := &DBSchema{
 		dbType:            info.Type,
 		version:           info.Version,
-		schema:            info.Schema,
 		name:              info.Name,
 		virtualTables:     make(map[string]VirtualTable),
 		dbFunctions:       make(map[string]DBFunction),
@@ -336,6 +334,9 @@ func (s *DBSchema) addVirtual(vt VirtualTable) error {
 
 // GetTables returns a table from the schema
 func (s *DBSchema) GetTables() []DBTable {
+	if s.tables == nil {
+		return []DBTable{}
+	}
 	return s.tables
 }
 
@@ -445,17 +446,18 @@ func GetRelName(colName string) string {
 
 // DBType returns the database type
 func (s *DBSchema) DBType() string {
+	if s == nil {
+		return "postgres"
+	}
 	return s.dbType
 }
 
 // DBVersion returns the database version
 func (s *DBSchema) DBVersion() int {
+	if s == nil {
+		return 0
+	}
 	return s.version
-}
-
-// DBSchema returns the database schema
-func (s *DBSchema) DBSchema() string {
-	return s.schema
 }
 
 // DBName returns the database name
@@ -501,12 +503,12 @@ func withDefault(value, defaultValue string) string {
 	return defaultValue
 }
 
-// ParseCrossSchemaTableName parses a table name in the format "tablename[separator]schemaname" 
+// ParseCrossSchemaTableName parses a table name in the format "tablename[separator]schemaname"
 // and returns the table name and schema name separately.
 // If the separator is not found, returns the full name and the default schema.
 func (s *DBSchema) ParseCrossSchemaTableName(fullName string) (tableName, schemaName string) {
 	separator := s.GetCrossSchemaSeparator()
-	
+
 	// Extract table and schema names using the separator
 	extractParts := func(name, sep string) (string, string) {
 		if parts := strings.SplitN(name, sep, 2); len(parts) == 2 {

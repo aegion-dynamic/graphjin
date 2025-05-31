@@ -157,7 +157,7 @@ func (co *Compiler) AddRole(role, schema, table string, trc TRConfig) error {
 	trv.delete.block = trc.Delete.Block
 
 	if schema == "" {
-		schema = co.s.DBSchema()
+		schema = co.s.DefaultSchema()
 	}
 	co.tr[(role + ":" + schema + ":" + table)] = trv
 
