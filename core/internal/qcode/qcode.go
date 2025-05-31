@@ -389,167 +389,167 @@ func (co *Compiler) Compile(
 }
 
 func (co *Compiler) compileQuery(qc *QCode, op *graph.Operation, role string) error {
-    var id int32
+	var id int32
 
-    // Check if there are any fields in the operation
-    if len(op.Fields) == 0 {
-        return errors.New("invalid graphql no query found")
-    }
+	// Check if there are any fields in the operation
+	if len(op.Fields) == 0 {
+		return errors.New("invalid graphql no query found")
+	}
 
-    // If the operation is a mutation, set the mutation type
-    if op.Type == graph.OpMutate {
-        if err := co.setMutationType(qc, op, role); err != nil {
-            return err
-        }
-    }
+	// If the operation is a mutation, set the mutation type
+	if op.Type == graph.OpMutate {
+		if err := co.setMutationType(qc, op, role); err != nil {
+			return err
+		}
+	}
 
-    // Compile any directives associated with the operation
-    if err := co.compileOpDirectives(qc, op.Directives); err != nil {
-        return err
-    }
+	// Compile any directives associated with the operation
+	if err := co.compileOpDirectives(qc, op.Directives); err != nil {
+		return err
+	}
 
-    // Initialize the selects slice with a capacity of 5
-    qc.Selects = make([]Select, 0, 5)
-    st := util.NewStackInt32()
+	// Initialize the selects slice with a capacity of 5
+	qc.Selects = make([]Select, 0, 5)
+	st := util.NewStackInt32()
 
-    // Check again if there are any fields in the operation
-    if len(op.Fields) == 0 {
-        return errors.New("empty query")
-    }
+	// Check again if there are any fields in the operation
+	if len(op.Fields) == 0 {
+		return errors.New("empty query")
+	}
 
-    // Iterate over the fields in the operation
-    for _, field := range op.Fields {
-        tableName, schemaName := co.parseTableName(field.Name)
-        
-        // Validate the schema name
-        if err := co.validateSchema(schemaName); err != nil {
-            return err
-        }
+	// Iterate over the fields in the operation
+	for _, field := range op.Fields {
+		tableName, schemaName := co.parseTableName(field.Name)
 
-        // Process the field with the parsed table name
-        if field.ParentID == -1 {
-            if tableName == "__typename" && op.Name != "" {
-                qc.Typename = true
-            }
-            val := field.ID | (-1 << 16)
-            st.Push(val)
-        }
-    }
+		// Validate the schema name
+		if err := co.validateSchema(schemaName); err != nil {
+			return err
+		}
 
-    // Process the stack until it is empty
-    for {
-        if st.Len() == 0 {
-            break
-        }
+		// Process the field with the parsed table name
+		if field.ParentID == -1 {
+			if tableName == "__typename" && op.Name != "" {
+				qc.Typename = true
+			}
+			val := field.ID | (-1 << 16)
+			st.Push(val)
+		}
+	}
 
-        // Check if the selector limit has been reached
-        if id >= maxSelectors {
-            return fmt.Errorf("selector limit reached (%d)", maxSelectors)
-        }
+	// Process the stack until it is empty
+	for {
+		if st.Len() == 0 {
+			break
+		}
 
-        val := st.Pop()
-        fid := val & 0xFFFF
-        parentID := (val >> 16) & 0xFFFF
+		// Check if the selector limit has been reached
+		if id >= maxSelectors {
+			return fmt.Errorf("selector limit reached (%d)", maxSelectors)
+		}
 
-        field := op.Fields[fid]
+		val := st.Pop()
+		fid := val & 0xFFFF
+		parentID := (val >> 16) & 0xFFFF
 
-        // Skip keyword fields
-        if field.Type == graph.FieldKeyword {
-            continue
-        }
+		field := op.Fields[fid]
 
-        // If the field is a top-level field, set its parent ID to -1
-        if field.ParentID == -1 {
-            parentID = -1
-        }
+		// Skip keyword fields
+		if field.Type == graph.FieldKeyword {
+			continue
+		}
 
-        // Create a new Select with the appropriate field settings
-        s1 := Select{
-            Field: Field{ID: id, ParentID: parentID, Type: FieldTypeTable},
-        }
+		// If the field is a top-level field, set its parent ID to -1
+		if field.ParentID == -1 {
+			parentID = -1
+		}
 
-        sel := &s1
+		// Create a new Select with the appropriate field settings
+		s1 := Select{
+			Field: Field{ID: id, ParentID: parentID, Type: FieldTypeTable},
+		}
 
-        // Parse the field name
-        name := co.ParseName(field.Name)
+		sel := &s1
 
-        // Set the field name or alias
-        if field.Alias != "" {
-            sel.FieldName = field.Alias
-        } else {
-            sel.FieldName = field.Name
-        }
+		// Parse the field name
+		name := co.ParseName(field.Name)
 
-        sel.Children = make([]int32, 0, 5)
+		// Set the field name or alias
+		if field.Alias != "" {
+			sel.FieldName = field.Alias
+		} else {
+			sel.FieldName = field.Name
+		}
 
-        // Compile any directives associated with the selector
-        if err := co.compileSelectorDirectives(qc, sel, field.Directives, role); err != nil {
-            return err
-        }
+		sel.Children = make([]int32, 0, 5)
 
-        // Add relational info to the selector
-        if err := co.addRelInfo(name, op, qc, sel, field); err != nil {
-            return err
-        }
+		// Compile any directives associated with the selector
+		if err := co.compileSelectorDirectives(qc, sel, field.Directives, role); err != nil {
+			return err
+		}
 
-        // Set the role config for the selector
-        tr, err := co.setSelectorRoleConfig(role, name, qc, sel)
-        if err != nil {
-            return err
-        }
+		// Add relational info to the selector
+		if err := co.addRelInfo(name, op, qc, sel, field); err != nil {
+			return err
+		}
 
-        // Set the limit for the selector
-        co.setLimit(tr, qc, sel)
+		// Set the role config for the selector
+		tr, err := co.setSelectorRoleConfig(role, name, qc, sel)
+		if err != nil {
+			return err
+		}
 
-        // Compile any arguments associated with the selector
-        if err := co.compileSelectArgs(sel, field.Args, role); err != nil {
-            return err
-        }
+		// Set the limit for the selector
+		co.setLimit(tr, qc, sel)
 
-        // Compile the fields for the selector
-        if err := co.compileFields(st, op, qc, sel, field, tr, role); err != nil {
-            return err
-        }
+		// Compile any arguments associated with the selector
+		if err := co.compileSelectArgs(sel, field.Args, role); err != nil {
+			return err
+		}
 
-        // Order is important: AddFilters must come after compileArgs
-        if userNeeded := addFilters(qc, &sel.Where, tr); userNeeded && role == "anon" {
-            sel.SkipRender = SkipTypeUserNeeded
-        }
+		// Compile the fields for the selector
+		if err := co.compileFields(st, op, qc, sel, field, tr, role); err != nil {
+			return err
+		}
 
-        // If an actual cursor is available
-        if sel.Paging.Cursor {
-            // Set tie-breaker order column for the cursor direction
-            // this column needs to be the last in the order series.
-            if err := co.orderByIDCol(sel); err != nil {
-                return err
-            }
+		// Order is important: AddFilters must come after compileArgs
+		if userNeeded := addFilters(qc, &sel.Where, tr); userNeeded && role == "anon" {
+			sel.SkipRender = SkipTypeUserNeeded
+		}
 
-            // Set filter chain needed to make the cursor work
-            if sel.Paging.Type != PTOffset {
-                co.addSeekPredicate(sel)
-            }
-        }
+		// If an actual cursor is available
+		if sel.Paging.Cursor {
+			// Set tie-breaker order column for the cursor direction
+			// this column needs to be the last in the order series.
+			if err := co.orderByIDCol(sel); err != nil {
+				return err
+			}
 
-        // Compute and set the relevant where clause required to join
-        // this table with its parent
-        co.setRelFilters(qc, sel)
+			// Set filter chain needed to make the cursor work
+			if sel.Paging.Type != PTOffset {
+				co.addSeekPredicate(sel)
+			}
+		}
 
-        // Validate the selector
-        if err := co.validateSelect(sel); err != nil {
-            return err
-        }
+		// Compute and set the relevant where clause required to join
+		// this table with its parent
+		co.setRelFilters(qc, sel)
 
-        // Add the selector to the list of selects
-        qc.Selects = append(qc.Selects, s1)
-        id++
-    }
+		// Validate the selector
+		if err := co.validateSelect(sel); err != nil {
+			return err
+		}
 
-    // If no selectors were found, return an error
-    if id == 0 {
-        return errors.New("invalid query: no selectors found")
-    }
+		// Add the selector to the list of selects
+		qc.Selects = append(qc.Selects, s1)
+		id++
+	}
 
-    return nil
+	// If no selectors were found, return an error
+	if id == 0 {
+		return errors.New("invalid query: no selectors found")
+	}
+
+	return nil
 }
 
 func (co *Compiler) addRelInfo(
@@ -786,12 +786,17 @@ func (co *Compiler) setRelFilters(qc *QCode, sel *Select) {
 }
 
 func (co *Compiler) Find(schema, name string) (sdata.DBTable, error) {
-	
-	parts_of_name := strings.SplitN(name, "of", 2)
+	separator := co.s.GetCrossSchemaSeparator()
+	parts := strings.SplitN(name, separator, 2)
 
-	if len(parts_of_name) == 2 {
-		name = parts_of_name[0]
-		schema = parts_of_name[1]
+	if len(parts) == 2 {
+		name = strings.TrimSpace(parts[0])
+		schema = strings.TrimSpace(parts[1])
+		// Convert schema name to lowercase to handle camel case
+		schema = strings.ToLower(schema)
+	} else if schema == "" {
+		// If no schema is provided, use the default schema
+		schema = co.s.DefaultSchema()
 	}
 
 	if co.c.EnableCamelcase {
@@ -1331,19 +1336,19 @@ func (sel *Select) GetInternalArg(name string) (Arg, bool) {
 }
 
 func (co *Compiler) parseTableName(name string) (tableName, schemaName string) {
-    parts := strings.SplitN(name, "of", 2)
-    if len(parts) == 2 {
-        return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
-    }
-    return name, co.s.DefaultSchema()
+	parts := strings.SplitN(name, "of", 2)
+	if len(parts) == 2 {
+		return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+	}
+	return name, co.s.DefaultSchema()
 }
 
 func (co *Compiler) validateSchema(schema string) error {
-    if schema == "" {
-        return nil
-    }
-    if !co.s.IsAllowedSchema(schema) {
-        return fmt.Errorf("schema '%s' not allowed", schema)
-    }
-    return nil
+	if schema == "" {
+		return nil
+	}
+	if !co.s.IsAllowedSchema(schema) {
+		return fmt.Errorf("schema '%s' not allowed", schema)
+	}
+	return nil
 }
