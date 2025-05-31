@@ -52,7 +52,7 @@ func cmdInit(cmd *cobra.Command, args []string) {
 	setup(cpath)
 	initDB(true)
 
-	if err := serv.InitAdmin(db, conf.DBType); err != nil {
+	if err := serv.InitAdmin(db, conf.DB.Type); err != nil {
 		log.Fatal(err)
 	}
 

@@ -192,7 +192,12 @@ database:
   {{- end }}
   user: {{ .DBUser }}
   password: {{ .DBPass }}
-  #schema: "public"
+
+  schemas:
+    allowed:
+      - public
+      - private
+    default: public
 
   # alternatively you can use a connection string
   #connection_string: postgres://jack:secret@pg.example.com:5432/mydb?sslmode=verify-ca&pool_max_conns=10

@@ -391,41 +391,58 @@ func (co *Compiler) Compile(
 func (co *Compiler) compileQuery(qc *QCode, op *graph.Operation, role string) error {
 	var id int32
 
+	// Check if there are any fields in the operation
 	if len(op.Fields) == 0 {
 		return errors.New("invalid graphql no query found")
 	}
 
+	// If the operation is a mutation, set the mutation type
 	if op.Type == graph.OpMutate {
 		if err := co.setMutationType(qc, op, role); err != nil {
 			return err
 		}
 	}
+
+	// Compile any directives associated with the operation
 	if err := co.compileOpDirectives(qc, op.Directives); err != nil {
 		return err
 	}
 
+	// Initialize the selects slice with a capacity of 5
 	qc.Selects = make([]Select, 0, 5)
 	st := util.NewStackInt32()
 
+	// Check again if there are any fields in the operation
 	if len(op.Fields) == 0 {
 		return errors.New("empty query")
 	}
 
-	for _, f := range op.Fields {
-		if f.ParentID == -1 {
-			if f.Name == "__typename" && op.Name != "" {
+	// Iterate over the fields in the operation
+	for _, field := range op.Fields {
+		tableName, schemaName := co.parseTableName(field.Name)
+
+		// Validate the schema name
+		if err := co.validateSchema(schemaName); err != nil {
+			return err
+		}
+
+		// Process the field with the parsed table name
+		if field.ParentID == -1 {
+			if tableName == "__typename" && op.Name != "" {
 				qc.Typename = true
 			}
-			val := f.ID | (-1 << 16)
+			val := field.ID | (-1 << 16)
 			st.Push(val)
 		}
 	}
 
+	// Process the stack until it is empty
 	for {
 		if st.Len() == 0 {
 			break
 		}
 
+		// Check if the selector limit has been reached
 		if id >= maxSelectors {
 			return fmt.Errorf("selector limit reached (%d)", maxSelectors)
 		}
@@ -436,24 +453,27 @@ func (co *Compiler) compileQuery(qc *QCode, op *graph.Operation, role string) er
 
 		field := op.Fields[fid]
 
-		// A keyword is a cursor field at the top-level
-		// For example posts_cursor in the root
+		// Skip keyword fields
 		if field.Type == graph.FieldKeyword {
 			continue
 		}
 
+		// If the field is a top-level field, set its parent ID to -1
 		if field.ParentID == -1 {
 			parentID = -1
 		}
 
+		// Create a new Select with the appropriate field settings
 		s1 := Select{
 			Field: Field{ID: id, ParentID: parentID, Type: FieldTypeTable},
 		}
 
 		sel := &s1
 
+		// Parse the field name
 		name := co.ParseName(field.Name)
 
+		// Set the field name or alias
 		if field.Alias != "" {
 			sel.FieldName = field.Alias
 		} else {
@@ -462,30 +482,36 @@ func (co *Compiler) compileQuery(qc *QCode, op *graph.Operation, role string) er
 
 		sel.Children = make([]int32, 0, 5)
 
+		// Compile any directives associated with the selector
 		if err := co.compileSelectorDirectives(qc, sel, field.Directives, role); err != nil {
 			return err
 		}
 
+		// Add relational info to the selector
 		if err := co.addRelInfo(name, op, qc, sel, field); err != nil {
 			return err
 		}
 
+		// Set the role config for the selector
 		tr, err := co.setSelectorRoleConfig(role, name, qc, sel)
 		if err != nil {
 			return err
 		}
 
+		// Set the limit for the selector
 		co.setLimit(tr, qc, sel)
 
+		// Compile any arguments associated with the selector
 		if err := co.compileSelectArgs(sel, field.Args, role); err != nil {
 			return err
 		}
 
+		// Compile the fields for the selector
 		if err := co.compileFields(st, op, qc, sel, field, tr, role); err != nil {
 			return err
 		}
 
-		// Order is important AddFilters must come after compileArgs
+		// Order is important: AddFilters must come after compileArgs
 		if userNeeded := addFilters(qc, &sel.Where, tr); userNeeded && role == "anon" {
 			sel.SkipRender = SkipTypeUserNeeded
 		}
@@ -508,14 +534,17 @@ func (co *Compiler) compileQuery(qc *QCode, op *graph.Operation, role string) er
 		// this table with its parent
 		co.setRelFilters(qc, sel)
 
+		// Validate the selector
 		if err := co.validateSelect(sel); err != nil {
 			return err
 		}
 
+		// Add the selector to the list of selects
 		qc.Selects = append(qc.Selects, s1)
 		id++
 	}
 
+	// If no selectors were found, return an error
 	if id == 0 {
 		return errors.New("invalid query: no selectors found")
 	}
@@ -757,6 +786,19 @@ func (co *Compiler) setRelFilters(qc *QCode, sel *Select) {
 }
 
 func (co *Compiler) Find(schema, name string) (sdata.DBTable, error) {
+	separator := co.s.GetCrossSchemaSeparator()
+	parts := strings.SplitN(name, separator, 2)
+
+	if len(parts) == 2 {
+		name = strings.TrimSpace(parts[0])
+		schema = strings.TrimSpace(parts[1])
+		// Convert schema name to lowercase to handle camel case
+		schema = strings.ToLower(schema)
+	} else if schema == "" {
+		// If no schema is provided, use the default schema
+		schema = co.s.DefaultSchema()
+	}
+
 	if co.c.EnableCamelcase {
 		name = strings.TrimSuffix(name, singularSuffixSnake)
 	} else {
@@ -1291,4 +1333,22 @@ func (sel *Select) GetInternalArg(name string) (Arg, bool) {
 		}
 	}
 	return arg, false
+}
+
+func (co *Compiler) parseTableName(name string) (tableName, schemaName string) {
+	parts := strings.SplitN(name, "of", 2)
+	if len(parts) == 2 {
+		return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+	}
+	return name, co.s.DefaultSchema()
+}
+
+func (co *Compiler) validateSchema(schema string) error {
+	if schema == "" {
+		return nil
+	}
+	if !co.s.IsAllowedSchema(schema) {
+		return fmt.Errorf("schema '%s' not allowed", schema)
+	}
+	return nil
 }
