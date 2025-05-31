@@ -255,10 +255,22 @@ func (gj *graphjinEngine) introQuery() (result json.RawMessage, err error) {
 		}
 	}
 
+	defaultSchema := in.schema.DefaultSchema()
+
 	// Get all the tables and add to the schema
 	for _, t := range in.schema.GetTables() {
 		if err = in.addTable(t, ""); err != nil {
 			return
+		}
+
+		// For tables not in the default schema, add them with "tablenameofschemaname" format
+		if t.Schema != defaultSchema && in.schema.IsAllowedSchema(t.Schema) {
+			tableCopy := t
+			crossSchemaAlias := t.Name + "of" + t.Schema
+
+			if err = in.addTable(tableCopy, crossSchemaAlias); err != nil {
+				return
+			}
 		}
 	}
 
@@ -272,6 +284,8 @@ func (gj *graphjinEngine) introQuery() (result json.RawMessage, err error) {
 	for _, v := range in.types {
 		in.result.Schema.Types = append(in.result.Schema.Types, v)
 	}
+
+	in.addCrossSchemaQueryFields()
 
 	result, err = json.Marshal(in.result)
 	return
@@ -898,6 +912,20 @@ func (in *Introspection) addType(ft FullType) {
 	in.types[ft.Name] = ft
 }
 
+// addFullType creates and returns a new FullType with the specified parameters
+func (in *Introspection) addFullType(kind string, name string, description string) {
+	ft := FullType{
+		Kind:        kind,
+		Name:        name,
+		Description: description,
+		Fields:      []FieldObject{},
+		InputFields: []InputValue{},
+		EnumValues:  []EnumValue{},
+		Interfaces:  []TypeRef{},
+	}
+	in.addType(ft)
+}
+
 func newTypeRef(kind, name string, tr *TypeRef) *TypeRef {
 	if name == "" {
 		return &TypeRef{Kind: kind, Name: nil, OfType: tr}
@@ -932,4 +960,239 @@ func getType(t string) (gqlType string, list bool) {
 		gqlType = "String"
 	}
 	return
+}
+
+func (in *Introspection) addCrossSchemaQueryFields() {
+
+	// Find query_root type
+	var queryRootIndex int
+	var queryRootFound bool
+	for i, t := range in.result.Schema.Types {
+		if t.Name == "Query" {
+			queryRootIndex = i
+			queryRootFound = true
+			break
+		}
+	}
+	if !queryRootFound {
+		return
+	}
+
+	// Find mutation_root type
+	var mutationRootIndex int
+	var mutationRootFound bool
+	for i, t := range in.result.Schema.Types {
+		if t.Name == "Mutation" {
+			mutationRootIndex = i
+			mutationRootFound = true
+			break
+		}
+	}
+	if !mutationRootFound {
+		return
+	}
+
+	for _, table := range in.schema.GetTables() {
+
+		// Skip blocked tables
+		if table.Blocked {
+			continue
+		}
+
+		// Process tables from allowed schemas (including default schema)
+		if in.schema.IsAllowedSchema(table.Schema) {
+			crossSchemaName := table.Name + "of" + table.Schema
+			typeName := in.getName(table.Name)
+
+			// Add connection types first before referencing them
+
+			// Add edge type
+			edgeTypeName := typeName + "Edge"
+			in.addFullType("OBJECT", edgeTypeName, fmt.Sprintf("A single edge in a connection for %s", typeName))
+			in.result.Schema.Types = append(in.result.Schema.Types, FullType{
+				Kind: "OBJECT",
+				Name: edgeTypeName,
+				Fields: []FieldObject{
+					{
+						Name: "node",
+						Type: newTypeRef("OBJECT", typeName, nil),
+						Args: []InputValue{},
+					},
+					{
+						Name: "cursor",
+						Type: newTypeRef("SCALAR", "String", nil),
+						Args: []InputValue{},
+					},
+				},
+				Interfaces:    []TypeRef{},
+				InputFields:   []InputValue{},
+				EnumValues:    []EnumValue{},
+				PossibleTypes: []TypeRef{},
+			})
+
+			// Add the query fields that reference these types
+			args := []InputValue{
+				{
+					Name:        "id",
+					Description: "Unique identifier",
+					Type:        newTypeRef("", "ID", nil),
+				},
+				{
+					Name:        "where",
+					Description: "Filter conditions",
+					Type:        newTypeRef("", typeName+"WhereInput", nil),
+				},
+				{
+					Name:        "order_by",
+					Description: "Ordering options",
+					Type:        newTypeRef("", typeName+"OrderByInput", nil),
+				},
+				{
+					Name:        "limit",
+					Description: "Limit the number of rows returned",
+					Type:        newTypeRef("", "Int", nil),
+				},
+				{
+					Name:        "offset",
+					Description: "Skip the specified number of rows",
+					Type:        newTypeRef("", "Int", nil),
+				},
+				{
+					Name:        "distinct_on",
+					Description: "Distinct rows by column values",
+					Type:        newTypeRef("LIST", "", newTypeRef("", "String", nil)),
+				},
+				{
+					Name:        "first",
+					Description: "Returns the first n elements",
+					Type:        newTypeRef("", "Int", nil),
+				},
+				{
+					Name:        "last",
+					Description: "Returns the last n elements",
+					Type:        newTypeRef("", "Int", nil),
+				},
+				{
+					Name:        "after",
+					Description: "Returns elements after the cursor",
+					Type:        newTypeRef("", "Cursor", nil),
+				},
+				{
+					Name:        "before",
+					Description: "Returns elements before the cursor",
+					Type:        newTypeRef("", "Cursor", nil),
+				},
+			}
+
+			// Add search argument for tables with full-text search columns
+			hasFullText := false
+			for _, col := range table.Columns {
+				if col.FullText {
+					hasFullText = true
+					break
+				}
+			}
+
+			if hasFullText {
+				args = append(args, InputValue{
+					Name:        "search",
+					Description: "Full-text search query",
+					Type:        newTypeRef("", "String", nil),
+				})
+			}
+
+			// Add query fields
+			in.result.Schema.Types[queryRootIndex].Fields = append(
+				in.result.Schema.Types[queryRootIndex].Fields,
+				FieldObject{
+					Name:        crossSchemaName,
+					Description: fmt.Sprintf("Fetch data from %s schema's %s table", table.Schema, table.Name),
+					Args:        args,
+					Type:        newTypeRef("LIST", "", newTypeRef("OBJECT", typeName, nil)),
+				},
+
+				// Add the singular version with ID argument
+				FieldObject{
+					Name:        crossSchemaName + "ByID",
+					Description: fmt.Sprintf("Fetch single row from %s schema's %s table by ID", table.Schema, table.Name),
+					Args: []InputValue{
+						{
+							Name:        "id",
+							Description: "Unique identifier",
+							Type:        newTypeRef("NON_NULL", "", newTypeRef("SCALAR", "ID", nil)),
+						},
+					},
+					Type: newTypeRef("OBJECT", typeName, nil),
+				},
+			)
+
+			// Add mutation fields
+			if mutationRootFound {
+
+				// Insert mutation
+				in.result.Schema.Types[mutationRootIndex].Fields = append(
+					in.result.Schema.Types[mutationRootIndex].Fields,
+					FieldObject{
+						Name:        "insert_" + crossSchemaName,
+						Description: fmt.Sprintf("Insert into %s schema's %s table", table.Schema, table.Name),
+						Args: []InputValue{
+							{
+								Name:        "insert",
+								Description: "Values to insert",
+								Type:        newTypeRef("", "insert"+typeName+"Input", nil),
+							},
+						},
+						Type: newTypeRef("OBJECT", typeName, nil),
+					},
+
+					// Update mutation
+					FieldObject{
+						Name:        "update_" + crossSchemaName,
+						Description: fmt.Sprintf("Update %s schema's %s table", table.Schema, table.Name),
+						Args: []InputValue{
+							{
+								Name:        "update",
+								Description: "Values to update",
+								Type:        newTypeRef("", "update"+typeName+"Input", nil),
+							},
+							{
+								Name:        "where",
+								Description: "Filter conditions",
+								Type:        newTypeRef("", typeName+"WhereInput", nil),
+							},
+						},
+						Type: newTypeRef("OBJECT", typeName, nil),
+					},
+
+					// Delete mutation
+					FieldObject{
+						Name:        "delete_" + crossSchemaName,
+						Description: fmt.Sprintf("Delete from %s schema's %s table", table.Schema, table.Name),
+						Args: []InputValue{
+							{
+								Name:        "where",
+								Description: "Filter conditions",
+								Type:        newTypeRef("", typeName+"WhereInput", nil),
+							},
+						},
+						Type: newTypeRef("SCALAR", "Boolean", nil),
+					},
+
+					// Upsert mutation
+					FieldObject{
+						Name:        "upsert_" + crossSchemaName,
+						Description: fmt.Sprintf("Insert or update %s schema's %s table", table.Schema, table.Name),
+						Args: []InputValue{
+							{
+								Name:        "upsert",
+								Description: "Values to insert or update",
+								Type:        newTypeRef("", "upsert"+typeName+"Input", nil),
+							},
+						},
+						Type: newTypeRef("OBJECT", typeName, nil),
+					},
+				)
+			}
+		}
+	}
 }

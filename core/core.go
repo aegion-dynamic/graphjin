@@ -139,42 +139,50 @@ func (gj *graphjinEngine) initSchema() error {
 	return nil
 }
 
+// _initSchema initializes the database schema with proper error handling and validation
 func (gj *graphjinEngine) _initSchema() (err error) {
+	// Validate database tables exist
 	if len(gj.dbinfo.Tables) == 0 {
 		return fmt.Errorf("no tables found in database")
 	}
 
-	schema := gj.dbinfo.Schema
-	for i, t := range gj.conf.Tables {
-		if t.Schema == "" {
-			gj.conf.Tables[i].Schema = schema
-			t.Schema = schema
+	// Process table configurations
+	processTableConfigs := func() error {
+		schema := gj.dbinfo.Schema
+		for i, t := range gj.conf.Tables {
+			// Set default schema if not specified
+			if t.Schema == "" {
+				gj.conf.Tables[i].Schema = schema
+				t.Schema = schema
+			}
+
+			// Skip alias configurations
+			if t.Table != "" && t.Type == "" {
+				continue
+			}
+
+			// Add table info to the schema
+			if err := gj.addTableInfo(t); err != nil {
+				return fmt.Errorf("failed to add table info for %s: %w", t.Name, err)
+			}
 		}
-		// skip aliases
-		if t.Table != "" && t.Type == "" {
-			continue
+		return nil
+	}
+
+	// Execute schema operations in sequence
+	operations := []func() error{
+		processTableConfigs,
+		func() error { return addTables(gj.conf, gj.dbinfo) },
+		func() error { return addForeignKeys(gj.conf, gj.dbinfo) },
+	}
+
+	for _, op := range operations {
+		if err := op(); err != nil {
+			return err
 		}
-		if err = gj.addTableInfo(t); err != nil {
-			return
-		}
 	}
 
-	if err = addTables(gj.conf, gj.dbinfo); err != nil {
-		return
-	}
-
-	if err = addForeignKeys(gj.conf, gj.dbinfo); err != nil {
-		return
-	}
-
-	gj.schema, err = sdata.NewDBSchema(
-		gj.dbinfo,
-		getDBTableAliases(gj.conf))
-	if err != nil {
-		return
-	}
-
-	return
+	return nil
 }
 
 func (gj *graphjinEngine) initIntro() (err error) {

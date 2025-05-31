@@ -101,9 +101,13 @@ type Config struct {
 
 	// The filesystem to use for this instance of GraphJin
 	FS interface{} `mapstructure:"-" jsonschema:"-" json:"-"`
-}
 
-// Configuration for a database table
+	// AllowedSchemas is a list of allowed schemas.
+	AllowedSchemas []string `mapstructure:"allowed_schemas" json:"allowed_schemas" yaml:"allowed_schemas"`
+
+	// DefaultSchema is the default schema.
+	DefaultSchema string `mapstructure:"default_schema" json:"default_schema" yaml:"default_schema"`
+}
 type Table struct {
 	Name      string
 	Schema    string

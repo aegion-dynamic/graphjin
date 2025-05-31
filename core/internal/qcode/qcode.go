@@ -389,138 +389,167 @@ func (co *Compiler) Compile(
 }
 
 func (co *Compiler) compileQuery(qc *QCode, op *graph.Operation, role string) error {
-	var id int32
+    var id int32
 
-	if len(op.Fields) == 0 {
-		return errors.New("invalid graphql no query found")
-	}
+    // Check if there are any fields in the operation
+    if len(op.Fields) == 0 {
+        return errors.New("invalid graphql no query found")
+    }
 
-	if op.Type == graph.OpMutate {
-		if err := co.setMutationType(qc, op, role); err != nil {
-			return err
-		}
-	}
-	if err := co.compileOpDirectives(qc, op.Directives); err != nil {
-		return err
-	}
+    // If the operation is a mutation, set the mutation type
+    if op.Type == graph.OpMutate {
+        if err := co.setMutationType(qc, op, role); err != nil {
+            return err
+        }
+    }
 
-	qc.Selects = make([]Select, 0, 5)
-	st := util.NewStackInt32()
+    // Compile any directives associated with the operation
+    if err := co.compileOpDirectives(qc, op.Directives); err != nil {
+        return err
+    }
 
-	if len(op.Fields) == 0 {
-		return errors.New("empty query")
-	}
+    // Initialize the selects slice with a capacity of 5
+    qc.Selects = make([]Select, 0, 5)
+    st := util.NewStackInt32()
 
-	for _, f := range op.Fields {
-		if f.ParentID == -1 {
-			if f.Name == "__typename" && op.Name != "" {
-				qc.Typename = true
-			}
-			val := f.ID | (-1 << 16)
-			st.Push(val)
-		}
-	}
+    // Check again if there are any fields in the operation
+    if len(op.Fields) == 0 {
+        return errors.New("empty query")
+    }
 
-	for {
-		if st.Len() == 0 {
-			break
-		}
+    // Iterate over the fields in the operation
+    for _, field := range op.Fields {
+        tableName, schemaName := co.parseTableName(field.Name)
+        
+        // Validate the schema name
+        if err := co.validateSchema(schemaName); err != nil {
+            return err
+        }
 
-		if id >= maxSelectors {
-			return fmt.Errorf("selector limit reached (%d)", maxSelectors)
-		}
+        // Process the field with the parsed table name
+        if field.ParentID == -1 {
+            if tableName == "__typename" && op.Name != "" {
+                qc.Typename = true
+            }
+            val := field.ID | (-1 << 16)
+            st.Push(val)
+        }
+    }
 
-		val := st.Pop()
-		fid := val & 0xFFFF
-		parentID := (val >> 16) & 0xFFFF
+    // Process the stack until it is empty
+    for {
+        if st.Len() == 0 {
+            break
+        }
 
-		field := op.Fields[fid]
+        // Check if the selector limit has been reached
+        if id >= maxSelectors {
+            return fmt.Errorf("selector limit reached (%d)", maxSelectors)
+        }
 
-		// A keyword is a cursor field at the top-level
-		// For example posts_cursor in the root
-		if field.Type == graph.FieldKeyword {
-			continue
-		}
+        val := st.Pop()
+        fid := val & 0xFFFF
+        parentID := (val >> 16) & 0xFFFF
 
-		if field.ParentID == -1 {
-			parentID = -1
-		}
+        field := op.Fields[fid]
 
-		s1 := Select{
-			Field: Field{ID: id, ParentID: parentID, Type: FieldTypeTable},
-		}
+        // Skip keyword fields
+        if field.Type == graph.FieldKeyword {
+            continue
+        }
 
-		sel := &s1
+        // If the field is a top-level field, set its parent ID to -1
+        if field.ParentID == -1 {
+            parentID = -1
+        }
 
-		name := co.ParseName(field.Name)
+        // Create a new Select with the appropriate field settings
+        s1 := Select{
+            Field: Field{ID: id, ParentID: parentID, Type: FieldTypeTable},
+        }
 
-		if field.Alias != "" {
-			sel.FieldName = field.Alias
-		} else {
-			sel.FieldName = field.Name
-		}
+        sel := &s1
 
-		sel.Children = make([]int32, 0, 5)
+        // Parse the field name
+        name := co.ParseName(field.Name)
 
-		if err := co.compileSelectorDirectives(qc, sel, field.Directives, role); err != nil {
-			return err
-		}
+        // Set the field name or alias
+        if field.Alias != "" {
+            sel.FieldName = field.Alias
+        } else {
+            sel.FieldName = field.Name
+        }
 
-		if err := co.addRelInfo(name, op, qc, sel, field); err != nil {
-			return err
-		}
+        sel.Children = make([]int32, 0, 5)
 
-		tr, err := co.setSelectorRoleConfig(role, name, qc, sel)
-		if err != nil {
-			return err
-		}
+        // Compile any directives associated with the selector
+        if err := co.compileSelectorDirectives(qc, sel, field.Directives, role); err != nil {
+            return err
+        }
 
-		co.setLimit(tr, qc, sel)
+        // Add relational info to the selector
+        if err := co.addRelInfo(name, op, qc, sel, field); err != nil {
+            return err
+        }
 
-		if err := co.compileSelectArgs(sel, field.Args, role); err != nil {
-			return err
-		}
+        // Set the role config for the selector
+        tr, err := co.setSelectorRoleConfig(role, name, qc, sel)
+        if err != nil {
+            return err
+        }
 
-		if err := co.compileFields(st, op, qc, sel, field, tr, role); err != nil {
-			return err
-		}
+        // Set the limit for the selector
+        co.setLimit(tr, qc, sel)
 
-		// Order is important AddFilters must come after compileArgs
-		if userNeeded := addFilters(qc, &sel.Where, tr); userNeeded && role == "anon" {
-			sel.SkipRender = SkipTypeUserNeeded
-		}
+        // Compile any arguments associated with the selector
+        if err := co.compileSelectArgs(sel, field.Args, role); err != nil {
+            return err
+        }
 
-		// If an actual cursor is available
-		if sel.Paging.Cursor {
-			// Set tie-breaker order column for the cursor direction
-			// this column needs to be the last in the order series.
-			if err := co.orderByIDCol(sel); err != nil {
-				return err
-			}
+        // Compile the fields for the selector
+        if err := co.compileFields(st, op, qc, sel, field, tr, role); err != nil {
+            return err
+        }
 
-			// Set filter chain needed to make the cursor work
-			if sel.Paging.Type != PTOffset {
-				co.addSeekPredicate(sel)
-			}
-		}
+        // Order is important: AddFilters must come after compileArgs
+        if userNeeded := addFilters(qc, &sel.Where, tr); userNeeded && role == "anon" {
+            sel.SkipRender = SkipTypeUserNeeded
+        }
 
-		// Compute and set the relevant where clause required to join
-		// this table with its parent
-		co.setRelFilters(qc, sel)
+        // If an actual cursor is available
+        if sel.Paging.Cursor {
+            // Set tie-breaker order column for the cursor direction
+            // this column needs to be the last in the order series.
+            if err := co.orderByIDCol(sel); err != nil {
+                return err
+            }
 
-		if err := co.validateSelect(sel); err != nil {
-			return err
-		}
+            // Set filter chain needed to make the cursor work
+            if sel.Paging.Type != PTOffset {
+                co.addSeekPredicate(sel)
+            }
+        }
 
-		qc.Selects = append(qc.Selects, s1)
-		id++
-	}
+        // Compute and set the relevant where clause required to join
+        // this table with its parent
+        co.setRelFilters(qc, sel)
 
-	if id == 0 {
-		return errors.New("invalid query: no selectors found")
-	}
+        // Validate the selector
+        if err := co.validateSelect(sel); err != nil {
+            return err
+        }
 
-	return nil
+        // Add the selector to the list of selects
+        qc.Selects = append(qc.Selects, s1)
+        id++
+    }
+
+    // If no selectors were found, return an error
+    if id == 0 {
+        return errors.New("invalid query: no selectors found")
+    }
+
+    return nil
 }
 
 func (co *Compiler) addRelInfo(
@@ -757,6 +786,14 @@ func (co *Compiler) setRelFilters(qc *QCode, sel *Select) {
 }
 
 func (co *Compiler) Find(schema, name string) (sdata.DBTable, error) {
+	
+	parts_of_name := strings.SplitN(name, "of", 2)
+
+	if len(parts_of_name) == 2 {
+		name = parts_of_name[0]
+		schema = parts_of_name[1]
+	}
+
 	if co.c.EnableCamelcase {
 		name = strings.TrimSuffix(name, singularSuffixSnake)
 	} else {
@@ -1291,4 +1328,22 @@ func (sel *Select) GetInternalArg(name string) (Arg, bool) {
 		}
 	}
 	return arg, false
+}
+
+func (co *Compiler) parseTableName(name string) (tableName, schemaName string) {
+    parts := strings.SplitN(name, "of", 2)
+    if len(parts) == 2 {
+        return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+    }
+    return name, co.s.DefaultSchema()
+}
+
+func (co *Compiler) validateSchema(schema string) error {
+    if schema == "" {
+        return nil
+    }
+    if !co.s.IsAllowedSchema(schema) {
+        return fmt.Errorf("schema '%s' not allowed", schema)
+    }
+    return nil
 }
