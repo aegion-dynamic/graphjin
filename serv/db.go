@@ -51,8 +51,9 @@ func newDB(
 	var err error
 
 	if cs := conf.DB.ConnString; cs != "" {
-		if strings.HasPrefix(cs, "postgres://") {
-			conf.DB.Type = "postgres"
+		// Check if the connection string has the required prefix or type is set to postgres
+		if strings.HasPrefix(cs, "postgres://") || strings.HasPrefix(cs, "postgresql://") || conf.DB.Type == "postgres" {
+			conf.Core.DBType = "postgres"
 		}
 		if strings.HasPrefix(cs, "mysql://") {
 			conf.DB.Type = "mysql"
@@ -103,17 +104,21 @@ func newDB(
 func initPostgres(conf *Config, openDB, useTelemetry bool, fs core.FS) (*dbConf, error) {
 	confCopy := conf
 	config, _ := pgx.ParseConfig(confCopy.DB.ConnString)
-	if confCopy.DB.Host != "" {
-		config.Host = confCopy.DB.Host
-	}
-	if confCopy.DB.Port != 0 {
-		config.Port = confCopy.DB.Port
-	}
-	if confCopy.DB.User != "" {
-		config.User = confCopy.DB.User
-	}
-	if confCopy.DB.Password != "" {
-		config.Password = confCopy.DB.Password
+
+	// Check if the connection string is empty, if it, look at the other fields
+	if confCopy.DB.ConnString == "" {
+		if confCopy.DB.Host != "" {
+			config.Host = confCopy.DB.Host
+		}
+		if confCopy.DB.Port != 0 {
+			config.Port = confCopy.DB.Port
+		}
+		if confCopy.DB.User != "" {
+			config.User = confCopy.DB.User
+		}
+		if confCopy.DB.Password != "" {
+			config.Password = confCopy.DB.Password
+		}
 	}
 
 	if config.RuntimeParams == nil {
