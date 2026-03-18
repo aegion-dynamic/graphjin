@@ -52,13 +52,19 @@ SELECT n.nspname as "schema",
 			ELSE ''::text
 		END
 	) AS foreignkey_table,
+	-- Referenced column name for foreign keys. For composite FKs, conkey[i] and confkey[i]
+	-- are the i-th local and referenced attnums; we use array_position to get the slot for
+	-- the current column (f.attnum) so each column gets the correct referenced column, not
+	-- always the first (confkey[1]).
 	(
 		CASE
 			WHEN co.contype = ('f'::char) THEN (
-				SELECT f.attname
-				FROM pg_attribute f
-				WHERE f.attnum = co.confkey [1]
-					and f.attrelid = co.confrelid
+				SELECT att.attname
+				FROM pg_attribute att
+				WHERE att.attnum = co.confkey[array_position(co.conkey, f.attnum)]
+					AND att.attrelid = co.confrelid
+					AND NOT att.attisdropped
+					AND att.attnum > 0
 			)
 			ELSE ''::text
 		END

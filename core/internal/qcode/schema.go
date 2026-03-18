@@ -81,14 +81,21 @@ func parseTFieldsColumns(tableSchema, tableName string, fields []graph.TField) (
 		if err != nil {
 			return
 		}
-		isRecursive := (dir.RelatedSchema == tableSchema &&
+		// Default FKeySchema to the table's schema when @relation omits "schema:" (e.g. public
+		// is omitted in the written schema); ensures round-trip restores FKeySchema correctly.
+		fkeySchema := dir.RelatedSchema
+		if dir.RelatedType != "" && fkeySchema == "" {
+			fkeySchema = tableSchema
+		}
+		// Recursive relation: this column's FK points back to the same table.
+		isRecursive := (fkeySchema == tableSchema &&
 			dir.RelatedType == tableName)
 
+		// Map GraphQL type to DB type and append @type(args) suffix if present.
 		colType := typeToDB(f.Type)
 		if dir.TypeSuffix != "" {
 			colType += "(" + dir.TypeSuffix + ")"
 		}
-
 		col := sdata.DBColumn{
 			ID:          int32(i),
 			Schema:      tableSchema,
@@ -101,7 +108,7 @@ func parseTFieldsColumns(tableSchema, tableName string, fields []graph.TField) (
 			UniqueKey:   dir.Unique,
 			FullText:    dir.Search,
 			Blocked:     dir.Blocked,
-			FKeySchema:  dir.RelatedSchema,
+			FKeySchema:  fkeySchema,
 			FKeyTable:   dir.RelatedType,
 			FKeyCol:     dir.RelatedField,
 			FKRecursive: isRecursive,
