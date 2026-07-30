@@ -90,15 +90,12 @@ func main() {
 
 	// Create a minimal GraphJin configuration
 	config := &core.Config{
-		DB: core.DBConfig{
-			Type: "postgres",                     // This would normally be an actual database
-			DSN:  "postgres://localhost/test_db", // Mock DSN
-		},
+		DBType: "postgres",
 		Debug: true,
 	}
 
 	// Initialize GraphJin (this will fail without a real database, but we can still test the basic structure)
-	gj, err := core.NewGraphJin(config, tempDir)
+	gj, err := core.NewGraphJin(config, nil)
 	if err != nil {
 		log.Printf("Expected error initializing GraphJin (no database): %v", err)
 		log.Println("Continuing with basic structural testing...")

@@ -75,8 +75,10 @@ type Field struct {
 }
 
 type VarDef struct {
-	Name string
-	Val  *Node
+	Name     string
+	Val      *Node
+	Type     string
+	Required bool
 }
 
 type Arg struct {
