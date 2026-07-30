@@ -35,6 +35,12 @@ func GetDBInfo(db *sql.DB, dbType string, blockList []string) (*DBInfo, error) {
 	return sdata.GetDBInfo(db, dbType, blockList)
 }
 
+// NewDBInfo builds a DBInfo from raw column data. Useful for tests that need to
+// construct schemas in memory without a real database.
+func NewDBInfo(dbType string, dbVersion int, dbSchema string, dbName string, cols []DBColumn, funcs []DBFunction, blockList []string) *DBInfo {
+	return sdata.NewDBInfo(dbType, dbVersion, dbSchema, dbName, cols, funcs, blockList)
+}
+
 // NewDBSchema builds the relationship graph used by FindPath.
 func NewDBSchema(info *DBInfo, aliases map[string][]string) (*DBSchema, error) {
 	if aliases == nil {
