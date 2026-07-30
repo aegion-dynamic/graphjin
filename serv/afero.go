@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/afero"
+
+	"github.com/dosco/graphjin/core/v3"
 )
 
 type aferoFS struct {
@@ -41,15 +43,10 @@ func (f *aferoFS) Exists(path string) (exists bool, err error) {
 }
 
 // List returns all files in the directory
-func (f *aferoFS) List(path string) (entries []string, err error) {
+func (f *aferoFS) List(path string) ([]string, error) {
 	dirEntries, err := afero.ReadDir(f.fs, path)
 	if err != nil {
 		return nil, err
 	}
-	for _, entry := range dirEntries {
-		if !entry.IsDir() {
-			entries = append(entries, entry.Name())
-		}
-	}
-	return entries, nil
+	return core.FilterFileNames(dirEntries), nil
 }
