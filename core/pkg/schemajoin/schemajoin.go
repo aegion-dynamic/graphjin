@@ -44,9 +44,12 @@ func NewDBSchema(info *DBInfo, aliases map[string][]string) (*DBSchema, error) {
 }
 
 // PathKeyForTable returns the key GraphJin uses in edgesIndex for pathfinding.
+// When schema is non-empty it returns "schema:table" to support cross-schema scenarios.
 func PathKeyForTable(schema, table string) string {
-	_ = schema
-	return table
+	if schema == "" {
+		return table
+	}
+	return schema + ":" + table
 }
 
 // FindPathChildToParent finds a join path from child table to parent table.
