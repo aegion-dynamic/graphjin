@@ -12,13 +12,14 @@ import (
 
 // Re-exported types from sdata for callers outside the core module.
 type (
-	DBInfo   = sdata.DBInfo
-	DBSchema = sdata.DBSchema
-	DBTable  = sdata.DBTable
-	DBColumn = sdata.DBColumn
-	TPath    = sdata.TPath
-	DBRel    = sdata.DBRel
-	RelType  = sdata.RelType
+	DBInfo     = sdata.DBInfo
+	DBSchema   = sdata.DBSchema
+	DBTable    = sdata.DBTable
+	DBColumn   = sdata.DBColumn
+	DBFunction = sdata.DBFunction
+	TPath      = sdata.TPath
+	DBRel      = sdata.DBRel
+	RelType    = sdata.RelType
 )
 
 // PathToRel converts one hop of a path to DBRel.
