@@ -183,6 +183,7 @@ func (s *DBSchema) addEdge(name string, edge TEdge, inSchema bool,
 
 	ei := edgeInfo{nodeID: edge.From, edgeIDs: []int32{edgeID}}
 	s.addEdgeInfo(name, ei)
+	s.addEdgeInfo(edge.LT.Schema+":"+edge.LT.Name, ei)
 
 	if inSchema {
 		edge.name = name

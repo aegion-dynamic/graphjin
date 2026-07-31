@@ -12,13 +12,14 @@ import (
 
 // Re-exported types from sdata for callers outside the core module.
 type (
-	DBInfo   = sdata.DBInfo
-	DBSchema = sdata.DBSchema
-	DBTable  = sdata.DBTable
-	DBColumn = sdata.DBColumn
-	TPath    = sdata.TPath
-	DBRel    = sdata.DBRel
-	RelType  = sdata.RelType
+	DBInfo     = sdata.DBInfo
+	DBSchema   = sdata.DBSchema
+	DBTable    = sdata.DBTable
+	DBColumn   = sdata.DBColumn
+	DBFunction = sdata.DBFunction
+	TPath      = sdata.TPath
+	DBRel      = sdata.DBRel
+	RelType    = sdata.RelType
 )
 
 // PathToRel converts one hop of a path to DBRel.
@@ -35,6 +36,12 @@ func GetDBInfo(db *sql.DB, dbType string, blockList []string) (*DBInfo, error) {
 	return sdata.GetDBInfo(db, dbType, blockList)
 }
 
+// NewDBInfo builds a DBInfo from raw column data. Useful for tests that need to
+// construct schemas in memory without a real database.
+func NewDBInfo(dbType string, dbVersion int, dbSchema string, dbName string, cols []DBColumn, funcs []DBFunction, blockList []string) *DBInfo {
+	return sdata.NewDBInfo(dbType, dbVersion, dbSchema, dbName, cols, funcs, blockList)
+}
+
 // NewDBSchema builds the relationship graph used by FindPath.
 func NewDBSchema(info *DBInfo, aliases map[string][]string) (*DBSchema, error) {
 	if aliases == nil {
@@ -44,9 +51,12 @@ func NewDBSchema(info *DBInfo, aliases map[string][]string) (*DBSchema, error) {
 }
 
 // PathKeyForTable returns the key GraphJin uses in edgesIndex for pathfinding.
+// When schema is non-empty it returns "schema:table" to support cross-schema scenarios.
 func PathKeyForTable(schema, table string) string {
-	_ = schema
-	return table
+	if schema == "" {
+		return table
+	}
+	return schema + ":" + table
 }
 
 // FindPathChildToParent finds a join path from child table to parent table.
