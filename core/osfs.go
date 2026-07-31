@@ -7,6 +7,23 @@ import (
 	"path/filepath"
 )
 
+// namedFileEntry is satisfied by both os.DirEntry and os.FileInfo.
+type namedFileEntry interface {
+	Name() string
+	IsDir() bool
+}
+
+// filterFileNames extracts file names from a list of entries, skipping subdirectories.
+func FilterFileNames[T namedFileEntry](entries []T) []string {
+	var names []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			names = append(names, e.Name())
+		}
+	}
+	return names
+}
+
 type osFS struct {
 	basePath string
 }
@@ -55,17 +72,11 @@ func (f *osFS) exists(path string) (ok bool, err error) {
 }
 
 // List returns all files in the directory
-func (f *osFS) List(path string) (entries []string, err error) {
+func (f *osFS) List(path string) ([]string, error) {
 	fullPath := filepath.Join(f.basePath, path)
 	dirEntries, err := os.ReadDir(fullPath)
 	if err != nil {
 		return nil, err
 	}
-
-	for _, entry := range dirEntries {
-		if !entry.IsDir() {
-			entries = append(entries, entry.Name())
-		}
-	}
-	return entries, nil
+	return FilterFileNames(dirEntries), nil
 }

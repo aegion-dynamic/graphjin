@@ -33,13 +33,13 @@ type OpenAPIServer struct {
 }
 
 type PathItem struct {
-	Get    *Operation `json:"get,omitempty"`
-	Post   *Operation `json:"post,omitempty"`
-	Put    *Operation `json:"put,omitempty"`
-	Delete *Operation `json:"delete,omitempty"`
+	Get    *OpenAPIOperation `json:"get,omitempty"`
+	Post   *OpenAPIOperation `json:"post,omitempty"`
+	Put    *OpenAPIOperation `json:"put,omitempty"`
+	Delete *OpenAPIOperation `json:"delete,omitempty"`
 }
 
-type Operation struct {
+type OpenAPIOperation struct {
 	Summary     string              `json:"summary,omitempty"`
 	Description string              `json:"description,omitempty"`
 	OperationID string              `json:"operationId,omitempty"`
@@ -253,7 +253,7 @@ func (g *GraphJin) extractParameters(varDefs []graph.VarDef) []Parameter {
 			Name:        varDef.Name,
 			In:          "query",
 			Description: fmt.Sprintf("GraphQL variable: %s", varDef.Name),
-			Required:    varDef.Required,
+			Required:    varDef.Required || varDef.Val == nil,
 			Schema:      g.graphQLTypeToOpenAPISchema(varDef.Type),
 		}
 		params = append(params, param)
@@ -550,7 +550,7 @@ func (g *GraphJin) generatePathItem(analysis *QueryAnalysis, components *OpenAPI
 	pathItem := PathItem{}
 
 	for _, method := range analysis.HTTPMethods {
-		operation := &Operation{
+		operation := &OpenAPIOperation{
 			Summary:     fmt.Sprintf("Execute %s query", analysis.Item.Name),
 			Description: fmt.Sprintf("Executes the %s GraphQL query via REST", analysis.Item.Name),
 			OperationID: fmt.Sprintf("%s_%s", strings.ToLower(method), analysis.Item.Name),
