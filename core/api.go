@@ -538,6 +538,40 @@ func (g *GraphJin) IsProd() bool {
 	return gj.prod
 }
 
+// AllowListItem describes one allow listed GraphQL operation as seen by graphjin
+type AllowListItem struct {
+	// Name is the operation name used in the allow list, e.g. "userInvite"
+	Name string
+
+	// Operation is the GraphQL operation type: query, mutation or subscription
+	Operation string
+
+	// Namespace is the allow list namespace the operation belongs to (empty when unnamespaced)
+	Namespace string
+}
+
+// AllowList returns a snapshot of all operations currently in the allow list
+// In development mode the allow list grows as named queries are executed
+// in production mode it is read only and seeded from the queries folder
+func (g *GraphJin) AllowList() ([]AllowListItem, error) {
+	gj := g.Load().(*graphjinEngine)
+
+	items, err := gj.allowList.ListAll()
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]AllowListItem, 0, len(items))
+	for _, it := range items {
+		out = append(out, AllowListItem{
+			Name:      it.Name,
+			Operation: it.Operation,
+			Namespace: it.Namespace,
+		})
+	}
+	return out, nil
+}
+
 type Header struct {
 	Type OpType
 	Name string
