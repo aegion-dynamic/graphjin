@@ -11,6 +11,50 @@ import (
 )
 
 // Configuration for the GraphJin compiler core
+// DatabaseConfig holds database connection and schema configuration
+type DatabaseConfig struct {
+	// Database type name (postgres, mysql, etc.)
+	Type string `mapstructure:"type" json:"type" yaml:"type"`
+
+	// Database connection parameters
+	Host     string `mapstructure:"host" json:"host" yaml:"host"`
+	Port     int    `mapstructure:"port" json:"port" yaml:"port"`
+	DBName   string `mapstructure:"dbname" json:"dbname" yaml:"dbname"`
+	User     string `mapstructure:"user" json:"user" yaml:"user"`
+	Password string `mapstructure:"password" json:"password" yaml:"password"`
+
+	// Connection string (alternative to individual parameters)
+	ConnectionString string `mapstructure:"connection_string" json:"connection_string" yaml:"connection_string"`
+
+	// Connection pool settings
+	PoolSize              int           `mapstructure:"pool_size" json:"pool_size" yaml:"pool_size"`
+	MaxConnections        int           `mapstructure:"max_connections" json:"max_connections" yaml:"max_connections"`
+	MaxConnectionIdleTime time.Duration `mapstructure:"max_connection_idle_time" json:"max_connection_idle_time" yaml:"max_connection_idle_time"`
+	MaxConnectionLifetime time.Duration `mapstructure:"max_connection_life_time" json:"max_connection_life_time" yaml:"max_connection_life_time"`
+
+	// Schema configuration
+	Schemas struct {
+		// AllowedSchemas is a list of allowed schemas
+		Allowed []string `mapstructure:"allowed" json:"allowed" yaml:"allowed"`
+
+		// DefaultSchema is the default schema to use
+		Default string `mapstructure:"default" json:"default" yaml:"default"`
+
+		// Separator for cross-schema table names
+		Separator string `mapstructure:"separator" json:"separator" yaml:"separator"`
+	} `mapstructure:"schemas" json:"schemas" yaml:"schemas"`
+
+	// TLS configuration
+	EnableTLS  bool   `mapstructure:"enable_tls" json:"enable_tls" yaml:"enable_tls"`
+	ServerName string `mapstructure:"server_name" json:"server_name" yaml:"server_name"`
+	ServerCert string `mapstructure:"server_cert" json:"server_cert" yaml:"server_cert"`
+	ClientCert string `mapstructure:"client_cert" json:"client_cert" yaml:"client_cert"`
+	ClientKey  string `mapstructure:"client_key" json:"client_key" yaml:"client_key"`
+
+	// Ping timeout for health checks
+	PingTimeout time.Duration `mapstructure:"ping_timeout" json:"ping_timeout" yaml:"ping_timeout"`
+}
+
 type Config struct {
 	// Is used to encrypt opaque values such as the cursor. Auto-generated when not set
 	SecretKey string `mapstructure:"secret_key" json:"secret_key" yaml:"secret_key"  jsonschema:"title=Secret Key"`
@@ -63,8 +107,8 @@ type Config struct {
 	// and 'anon' when it's not. Use the 'Roles Query' config to add more custom roles
 	Roles []Role
 
-	// Database type name Defaults to 'postgres' (options: mysql, postgres)
-	DBType string `mapstructure:"db_type" json:"db_type" yaml:"db_type" jsonschema:"title=Database Type,enum=postgres,enum=mysql"`
+	// Database configuration
+	Database DatabaseConfig `mapstructure:"database" json:"database" yaml:"database"`
 
 	// Log warnings and other debug information
 	Debug bool `jsonschema:"title=Debug,default=false"`
@@ -103,7 +147,6 @@ type Config struct {
 	FS interface{} `mapstructure:"-" jsonschema:"-" json:"-"`
 }
 
-// Configuration for a database table
 type Table struct {
 	Name      string
 	Schema    string

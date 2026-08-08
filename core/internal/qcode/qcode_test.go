@@ -14,7 +14,7 @@ var dbs *sdata.DBSchema
 func init() {
 	var err error
 
-	dbs, err = sdata.NewDBSchema(sdata.GetTestDBInfo(), nil)
+	dbs, err = sdata.NewDBSchema(sdata.GetTestDBInfo(), nil, sdata.Config{})
 	if err != nil {
 		panic(err)
 	}
@@ -345,5 +345,80 @@ func BenchmarkQCompileFragment(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+func TestFindWithCustomSeparator(t *testing.T) {
+	testCases := []struct {
+		name           string
+		input          string
+		expectedTable  string
+		expectedSchema string
+		hasError       bool
+	}{
+		{
+			name:           "with custom separator and lowercase schema",
+			input:          "testOfpublic",
+			expectedTable:  "test",
+			expectedSchema: "public",
+			hasError:       false,
+		},
+		{
+			name:           "with custom separator and camel case schema",
+			input:          "testOfPublic",
+			expectedTable:  "test",
+			expectedSchema: "public",
+			hasError:       false,
+		},
+		{
+			name:           "with default schema",
+			input:          "test",
+			expectedTable:  "test",
+			expectedSchema: "public", // default schema
+			hasError:       false,
+		},
+	}
+
+	// Setup test schema with custom separator
+	dbInfo := sdata.GetTestDBInfo()
+	dbInfo.Tables = append(dbInfo.Tables, sdata.DBTable{
+		Schema: "public",
+		Name:   "test",
+	})
+
+	// Create schema with custom separator
+	schema, err := sdata.NewDBSchema(dbInfo, nil, sdata.Config{
+		CrossSchemaSeparator: "Of",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create compiler with test schema
+	qc, err := qcode.NewCompiler(schema, qcode.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			table, err := qc.Find("", tc.input)
+			if tc.hasError {
+				if err == nil {
+					t.Fatalf("expected error but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Find failed: %v", err)
+			}
+
+			if table.Name != tc.expectedTable || table.Schema != tc.expectedSchema {
+				t.Errorf("Expected table '%s.%s', got '%s.%s'",
+					tc.expectedSchema, tc.expectedTable,
+					table.Schema, table.Name)
+			}
+		})
 	}
 }

@@ -106,5 +106,10 @@ func GetTestSchema() (*DBSchema, error) {
 		"users": {"me"},
 	}
 
-	return NewDBSchema(GetTestDBInfo(), aliases)
+	config := Config{
+		AllowedSchemas: []string{"public", "private"},
+		DefaultSchema:  "public",
+	}
+
+	return NewDBSchema(GetTestDBInfo(), aliases, config)
 }

@@ -62,8 +62,8 @@ func (s *graphjinService) initConfig() error {
 	c.dirty = true
 
 	// copy over db_type from database.type
-	if c.Core.DBType == "" {
-		c.Core.DBType = c.DB.Type
+	if c.DB.Type == "" {
+		c.DB.Type = c.DB.Type
 	}
 
 	if c.HotDeploy {

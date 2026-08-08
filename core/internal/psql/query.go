@@ -38,12 +38,14 @@ type compilerContext struct {
 
 type Variables map[string]json.RawMessage
 
+// Config holds the configuration for the SQL query compiler
 type Config struct {
-	Vars            map[string]string
-	DBType          string
-	DBVersion       int
-	SecPrefix       []byte
-	EnableCamelcase bool
+	Vars            map[string]string // Template variables
+	DBType          string            // Database type (postgres, mysql, etc.)
+	DBVersion       int               // Database version
+	SecPrefix       []byte            // Security prefix for prepared statements
+	EnableCamelcase bool              // Enable camelCase conversion
+	DefaultSchema   string            // Default database schema
 }
 
 type Compiler struct {
@@ -52,15 +54,26 @@ type Compiler struct {
 	cv              int    // db version
 	pf              []byte // security prefix
 	enableCamelcase bool
+	defaultSchema   string // default schema
 }
 
+// NewCompiler creates a new SQL query compiler with the given configuration
 func NewCompiler(conf Config) *Compiler {
+	// Initialize with default values if not provided
+	defaultIfEmpty := func(value, defaultValue string) string {
+		if value == "" {
+			return defaultValue
+		}
+		return value
+	}
+
 	return &Compiler{
 		svars:           conf.Vars,
-		ct:              conf.DBType,
+		ct:              defaultIfEmpty(conf.DBType, "postgres"),
 		cv:              conf.DBVersion,
 		pf:              conf.SecPrefix,
 		enableCamelcase: conf.EnableCamelcase,
+		defaultSchema:   defaultIfEmpty(conf.DefaultSchema, "public"),
 	}
 }
 
@@ -389,7 +402,7 @@ func (c *compilerContext) renderPostgreaOnlyJoinTables(sel *qcode.Select) {
 
 func (c *compilerContext) renderJoin(join qcode.Join) {
 	c.w.WriteString(` INNER JOIN `)
-	c.w.WriteString(join.Rel.Left.Ti.Name)
+	c.renderTable(&qcode.Select{Table: join.Rel.Left.Ti.Name, Schema: join.Rel.Left.Ti.Schema})
 	c.w.WriteString(` ON ((`)
 	c.renderExp(join.Rel.Left.Ti, join.Filter, false)
 	c.w.WriteString(`))`)
@@ -484,7 +497,7 @@ func (c *compilerContext) renderFrom(sel *qcode.Select) {
 	c.w.WriteString(` FROM `)
 
 	if c.qc.Type == qcode.QTMutation {
-		c.quoted(sel.Table)
+		c.renderTable(sel)
 		return
 	}
 
@@ -518,7 +531,11 @@ func (c *compilerContext) renderFromCursor(sel *qcode.Select) {
 
 func (c *compilerContext) renderJSONTable(sel *qcode.Select) {
 	c.w.WriteString(`JSON_TABLE(`)
-	c.colWithTable(sel.Rel.Left.Col.Table, sel.Rel.Left.Col.Name)
+	if sel.Rel.Left.Col.Schema != "" {
+		c.w.WriteString(QuoteIdent(sel.Rel.Left.Col.Schema))
+		c.w.WriteString(".")
+	}
+	c.w.WriteString(QuoteIdent(sel.Rel.Left.Col.Table))
 	c.w.WriteString(`, "$[*]" COLUMNS(`)
 
 	for i, col := range sel.Ti.Columns {
@@ -533,7 +550,7 @@ func (c *compilerContext) renderJSONTable(sel *qcode.Select) {
 		c.w.WriteString(`" ERROR ON ERROR`)
 	}
 	c.w.WriteString(`)) AS`)
-	c.quoted(sel.Table)
+	c.renderTable(sel)
 }
 
 func (c *compilerContext) renderSelectToRecordSet(sel *qcode.Select) {
@@ -542,7 +559,7 @@ func (c *compilerContext) renderSelectToRecordSet(sel *qcode.Select) {
 	c.w.WriteString(`_to_recordset(`)
 	c.colWithTable(sel.Rel.Left.Col.Table, sel.Rel.Left.Col.Name)
 	c.w.WriteString(`) AS `)
-	c.quoted(sel.Table)
+	c.renderTable(sel)
 
 	c.w.WriteString(`(`)
 	for i, col := range sel.Ti.Columns {
@@ -701,4 +718,21 @@ func (c *compilerContext) renderDistinctOn(sel *qcode.Select) {
 		c.colWithTable(sel.Table, col.Name)
 	}
 	c.w.WriteString(`) `)
+}
+
+// renderTable renders a table reference with proper schema qualification
+func (c *compilerContext) renderTable(sel *qcode.Select) {
+	shouldRenderSchema := func(schema, defaultSchema string) bool {
+		return schema != "" && schema != defaultSchema
+	}
+
+	renderSchema := func(schema string) {
+		c.w.WriteString(QuoteIdent(schema))
+	}
+
+	if shouldRenderSchema(sel.Schema, c.defaultSchema) {
+		renderSchema(sel.Schema)
+		c.w.WriteString(".")
+	}
+	c.w.WriteString(QuoteIdent(sel.Table))
 }

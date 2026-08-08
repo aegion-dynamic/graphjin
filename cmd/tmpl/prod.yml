@@ -112,7 +112,12 @@ database:
   {{- end }}
   user: {{ .DBUser }}
   password: {{ .DBPass }}
-  #schema: "public"
+
+  schemas:
+    allowed:
+      - public
+      - private
+    default: public
 
   # Size of database connection pool
   # pool_size: 15
